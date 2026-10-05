@@ -1,0 +1,18 @@
+# ==============================================================================
+# AI-Based Vision Screening of Refractive Errors Using Deep Learning
+# Python Backend Dependencies
+# ==============================================================================
+
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+pydantic>=2.6.0
+
+# Deep Learning & Image Processing
+tensorflow>=2.15.0
+pillow>=10.2.0
+numpy>=1.26.0
+opencv-python-headless>=4.9.0
+
+# Optional: Data visualization for training logs
+matplotlib>=3.8.0
