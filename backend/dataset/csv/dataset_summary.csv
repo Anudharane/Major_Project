@@ -3,7 +3,7 @@ AI generated Dataset,astigmatism,Spectacles Required,2000
 AI generated Dataset,hyperopia,Spectacles Required,2000
 AI generated Dataset,myopia,Spectacles Required,2000
 AI generated Dataset,normal,No Spectacles Needed,2000
-Real time dataset,myopia,Spectacles Required,63294
+Real time dataset,myopia,Spectacles Required,2000
 Real time dataset,normal,No Spectacles Needed,1074
 eye_dataset,hyperopia,Spectacles Required,2000
 eye_dataset,myopia,Spectacles Required,2000

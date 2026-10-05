@@ -87,11 +87,11 @@ def generate_csvs():
     print("Scanning and Generating Dataset CSV Files...")
     print("=" * 60)
 
-    # Prefer workspace dataset root, fallback to backend dataset directory
+    # Prioritize backend dataset directory where files actually exist
     datasets_to_scan = [
-        ("AI generated Dataset", [WORKSPACE_DATASETS_DIR / "AI generated Dataset", BACKEND_DATASETS_DIR / "AI generated Dataset"]),
-        ("Real time dataset", [WORKSPACE_DATASETS_DIR / "Real time dataset", BACKEND_DATASETS_DIR / "Real time dataset"]),
-        ("eye_dataset", [WORKSPACE_DATASETS_DIR / "eye_dataset", PROJECT_ROOT / "eye_dataset", BACKEND_DATASETS_DIR / "eye_dataset"])
+        ("AI generated Dataset", [BACKEND_DATASETS_DIR / "AI generated Dataset", WORKSPACE_DATASETS_DIR / "AI generated Dataset"]),
+        ("Real time dataset", [BACKEND_DATASETS_DIR / "Real time dataset", WORKSPACE_DATASETS_DIR / "Real time dataset"]),
+        ("eye_dataset", [BACKEND_DATASETS_DIR / "eye_dataset", WORKSPACE_DATASETS_DIR / "eye_dataset", PROJECT_ROOT / "eye_dataset"])
     ]
 
     all_records = []

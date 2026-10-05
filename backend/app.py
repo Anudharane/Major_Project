@@ -69,8 +69,8 @@ def get_model():
     """Loads and caches the trained PyTorch Spectacle Vision Model."""
     global loaded_model
     if loaded_model is None:
-        print("Initializing SpectacleVisionNet model instance...")
-        model = SpectacleVisionNet(num_spectacle_classes=2, num_conditions=4)
+        print("Initializing ResNet-18 SpectacleVisionNet model instance...")
+        model = SpectacleVisionNet(num_classes=2, optical_feat_dim=4, pretrained=not MODEL_PATH.exists())
         
         if MODEL_PATH.exists():
             print(f"Loading trained weights from {MODEL_PATH}...")
@@ -90,6 +90,25 @@ def get_model():
     return loaded_model
 
 
+@app.get("/reload")
+@app.get("/api/reload")
+@app.post("/reload")
+@app.post("/api/reload")
+def reload_model():
+    """Forces reloading the newly trained ResNet-18 weights into memory."""
+    global loaded_model
+    import importlib
+    import model as model_mod
+    importlib.reload(model_mod)
+    loaded_model = None
+    m = get_model()
+    return {
+        "status": "success",
+        "message": "ResNet-18 Transfer Learning model reloaded successfully.",
+        "model_architecture": "ResNet-18 (Transfer Learning)"
+    }
+
+
 @app.get("/status")
 @app.get("/api/status")
 @app.get("/api")
@@ -107,7 +126,7 @@ def get_system_status():
     return {
         "system": "AI-Based Vision Screening System",
         "status": "Online",
-        "model_architecture": "Deep MobileNetV2 SpectacleVisionNet",
+        "model_architecture": "ResNet-18 (Transfer Learning)",
         "trained_weights_loaded": has_weights,
         "primary_output": "Spectacle Requirement Determination (Spectacles Required / No Spectacles Needed)",
         "model_metadata": metadata,

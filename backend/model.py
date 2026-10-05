@@ -1,31 +1,32 @@
 """
 ==============================================================================
-AI Vision Screening: Spectacle Requirement Determination Model (PyTorch)
+AI Vision Screening: Binary Spectacle Requirement Model (PyTorch)
 ==============================================================================
-Predicts whether an individual requires spectacles based on eye image screening:
-- Normal Eye Image -> "No Spectacles Needed" (spectacles_needed = False)
-- Error / Defect Eye Image (Myopia, Hyperopia, Astigmatism) -> "Spectacles Required" (spectacles_needed = True)
+Binary Classifier: Determines whether a user requires spectacles or not.
+Classes:
+  - 0: "No Spectacles Needed"
+  - 1: "Spectacles Needed"
 
 Architecture:
-- High-efficiency Custom Mobile Deep CNN (SpectacleVisionNet)
-- Dual Head: Spectacle Need Classification & Error Condition Diagnostics
+- ResNet-18 Transfer Learning Backbone (Pretrained on ImageNet)
+- Multi-modal Ocular Feature Extraction & Optical Feature Fusion
+- Ocular ROI Localization, Illumination Normalization & CLAHE
 ==============================================================================
 """
 
 import os
 import torch
 import torch.nn as nn
+import torchvision.models as models
 import torchvision.transforms as transforms
 from PIL import Image
 import numpy as np
 
-# Class Definitions
-SPECTACLE_CLASSES = ["No Spectacles Needed", "Spectacles Required"]
-CONDITION_CLASSES = ["normal", "myopia", "hyperopia", "astigmatism"]
+from image_refiner import refine_ocular_image, extract_optical_feature_tensor, pil_to_base64_thumbnail
 
+SPECTACLE_CLASSES = ["No Spectacles Needed", "Spectacles Needed"]
 IMAGE_SIZE = (128, 128)
 
-# Preprocessing transforms
 def get_inference_transforms():
     return transforms.Compose([
         transforms.Resize(IMAGE_SIZE),
@@ -38,155 +39,156 @@ def get_train_transforms():
     return transforms.Compose([
         transforms.Resize(IMAGE_SIZE),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(degrees=10),
-        transforms.ColorJitter(brightness=0.1, contrast=0.1),
+        transforms.RandomRotation(degrees=15),
+        transforms.ColorJitter(brightness=0.15, contrast=0.15),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
     ])
 
 
-class SpectacleVisionNet(nn.Module):
+class ResNet18SpectacleBinaryNet(nn.Module):
     """
-    High-efficiency Deep CNN for Spectacle Requirement Screening.
-    Dual output heads:
-    1. Binary Spectacle Decision (No Spectacles Needed vs Spectacles Required)
-    2. Detailed Condition Diagnosis (Normal, Myopia, Hyperopia, Astigmatism)
+    ResNet-18 Transfer Learning Binary Classifier for Spectacle Requirement.
+    Fuses deep visual representations with handcrafted ocular optical features.
     """
-    def __init__(self, num_spectacle_classes=2, num_conditions=4):
-        super(SpectacleVisionNet, self).__init__()
+    def __init__(self, num_classes=2, optical_feat_dim=4, pretrained=True, freeze_early=True):
+        super(ResNet18SpectacleBinaryNet, self).__init__()
         
-        self.features = nn.Sequential(
-            # Block 1
-            nn.Conv2d(3, 32, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2), # 64x64
+        if pretrained:
+            weights = models.ResNet18_Weights.DEFAULT
+            base = models.resnet18(weights=weights)
+        else:
+            base = models.resnet18(weights=None)
 
-            # Block 2
-            nn.Conv2d(32, 64, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2), # 32x32
+        self.conv1 = base.conv1
+        self.bn1 = base.bn1
+        self.relu = base.relu
+        self.maxpool = base.maxpool
+        self.layer1 = base.layer1
+        self.layer2 = base.layer2
+        self.layer3 = base.layer3
+        self.layer4 = base.layer4
+        self.avgpool = base.avgpool
 
-            # Block 3
-            nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2), # 16x16
+        if freeze_early and pretrained:
+            for p in [self.conv1, self.bn1, self.layer1, self.layer2]:
+                for param in p.parameters():
+                    param.requires_grad = False
 
-            # Block 4
-            nn.Conv2d(128, 256, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d((1, 1)) # 1x1
+        # Optical feature projection
+        self.optical_fc = nn.Sequential(
+            nn.Linear(optical_feat_dim, 32),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True)
         )
 
-        # Shared representation layer
-        self.shared_fc = nn.Sequential(
-            nn.Dropout(0.3),
-            nn.Linear(256, 128),
+        # Fused classifier (512 visual + 32 optical = 544 dimensions)
+        self.classifier = nn.Sequential(
+            nn.Dropout(0.35),
+            nn.Linear(512 + 32, 128),
             nn.BatchNorm1d(128),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.2)
+            nn.Dropout(0.2),
+            nn.Linear(128, num_classes)
         )
 
-        # Head 1: Binary Spectacle Requirement (0 = No Spectacles Needed, 1 = Spectacles Required)
-        self.spectacle_head = nn.Linear(128, num_spectacle_classes)
+    def forward(self, x, opt_feats=None):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
 
-        # Head 2: Condition Classification (0 = normal, 1 = myopia, 2 = hyperopia, 3 = astigmatism)
-        self.condition_head = nn.Linear(128, num_conditions)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
 
-    def forward(self, x):
-        feat = self.features(x)
-        feat = torch.flatten(feat, 1)
-        shared = self.shared_fc(feat)
+        x = self.avgpool(x)
+        feat_img = torch.flatten(x, 1)  # (B, 512)
+
+        if opt_feats is None:
+            opt_feats = torch.zeros((feat_img.size(0), 4), device=feat_img.device)
         
-        spectacle_logits = self.spectacle_head(shared)
-        condition_logits = self.condition_head(shared)
-        
-        return spectacle_logits, condition_logits
+        feat_opt = self.optical_fc(opt_feats)
+        fused = torch.cat([feat_img, feat_opt], dim=1)  # (B, 544)
+        logits = self.classifier(fused)
+
+        return logits
 
 
-def predict_image_pipeline(model, image: Image.Image, device="cpu", symptom: str = None):
+# Aliases for backward compatibility
+ResNet18SpectacleNet = ResNet18SpectacleBinaryNet
+SpectacleVisionNet = ResNet18SpectacleBinaryNet
+
+
+def predict_image_pipeline(model, raw_image: Image.Image, device="cpu", symptom: str = None):
     """
-    Runs complete screening prediction pipeline on a PIL image.
-    Pure deep learning model inference trained on the 3 datasets:
-    - Normal eye image -> "No Spectacles Needed" (spectacles_needed = False)
-    - Error eye image (myopia, hyperopia, astigmatism) -> "Spectacles Required" (spectacles_needed = True)
+    Runs complete binary vision screening pipeline:
+    1. Refines ocular ROI, applies CLAHE contrast enhancement & sharpening
+    2. Extracts quantitative optical feature vector
+    3. Runs ResNet-18 Transfer Learning model
+    4. Outputs exclusively whether spectacles are needed or not
     """
-    model.eval()
+    # 1. Refine image & extract optical features
+    refined_image, extracted_features = refine_ocular_image(raw_image)
+    refined_thumbnail_b64 = pil_to_base64_thumbnail(refined_image)
+    opt_vec = extract_optical_feature_tensor(refined_image)
+
+    # 2. Prepare PyTorch tensors
     transform = get_inference_transforms()
-    
-    if image.mode != "RGB":
-        image = image.convert("RGB")
-        
-    tensor = transform(image).unsqueeze(0).to(device)
-    
+    img_tensor = transform(refined_image).unsqueeze(0).to(device)
+    opt_tensor = torch.tensor(opt_vec, dtype=torch.float).unsqueeze(0).to(device)
+
+    # 3. Model inference
+    model.eval()
     with torch.no_grad():
-        spectacle_logits, condition_logits = model(tensor)
-        spectacle_probs = torch.softmax(spectacle_logits, dim=1).cpu().numpy()[0]
-        condition_probs = torch.softmax(condition_logits, dim=1).cpu().numpy()[0]
+        logits = model(img_tensor, opt_tensor)
+        probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
 
-    prob_normal = float(spectacle_probs[0])
-    prob_error = float(spectacle_probs[1])
+    prob_not_needed = float(probs[0])
+    prob_needed = float(probs[1])
 
-    # Condition index predicted by CNN
-    cond_idx = int(np.argmax(condition_probs))
-    cond_name = CONDITION_CLASSES[cond_idx]
+    # Contextual symptom synergy (if provided)
+    if symptom:
+        s_lower = symptom.lower()
+        if any(w in s_lower for w in ["blur", "reading", "distance", "strain", "headache"]):
+            prob_needed = max(prob_needed, 0.70)
+            prob_not_needed = 1.0 - prob_needed
+        elif "no symptoms" in s_lower or "routine" in s_lower:
+            prob_not_needed = max(prob_not_needed, 0.65)
+            prob_needed = 1.0 - prob_not_needed
 
-    # Spectacles needed determination directly from trained model
-    spectacles_needed = prob_error > prob_normal
-
-    condition_display_map = {
-        "normal": "Normal Ocular Vision (Emmetropic)",
-        "myopia": "Myopia (Nearsightedness)",
-        "hyperopia": "Hyperopia (Farsightedness)",
-        "astigmatism": "Astigmatism (Corneal Asymmetry)"
-    }
+    spectacles_needed = prob_needed > prob_not_needed
+    confidence = prob_needed if spectacles_needed else prob_not_needed
 
     if spectacles_needed:
-        status_label = "Spectacles Required"
+        status_label = "Spectacles Needed"
         clinical_advice = (
-            f"Screening analysis indicates ocular refractive anomaly characteristic of {condition_display_map.get(cond_name, 'Refractive Error')}. "
-            f"Corrective prescription spectacles are recommended. Please schedule an examination with an optometrist."
+            "Screening analysis indicates ocular refractive error characteristics. "
+            "Prescription corrective spectacles are indicated. Please consult a qualified optometrist for an eye examination."
         )
         badge_color = "warning"
-        confidence = prob_error
     else:
         status_label = "No Spectacles Needed"
-        cond_name = "normal"
         clinical_advice = (
-            "Ocular alignment, corneal reflection clarity, and focal characteristics appear within normal healthy parameters. "
-            "No corrective spectacles are indicated at this time."
+            "Ocular alignment, focal clarity, and corneal reflection appear within normal parameters. "
+            "No corrective spectacles are required at this time."
         )
         badge_color = "success"
-        confidence = prob_normal
-        clinical_advice = (
-            "Ocular alignment, corneal reflection clarity, and focal characteristics appear within normal healthy parameters. "
-            "No corrective spectacles are indicated at this time."
-        )
-        badge_color = "success"
-        confidence = prob_normal
-
-    condition_prob_dict = {
-        "Normal Vision": round(float(condition_probs[0]) * 100, 2),
-        "Myopia": round(float(condition_probs[1]) * 100, 2),
-        "Hyperopia": round(float(condition_probs[2]) * 100, 2),
-        "Astigmatism": round(float(condition_probs[3]) * 100, 2),
-    }
 
     return {
         "success": True,
+        "model_architecture": "ResNet-18 Feature-Fused Transfer Learning",
         "spectacles_needed": spectacles_needed,
         "status": status_label,
-        "detected_condition": condition_display_map.get(cond_name, cond_name.capitalize()),
         "confidence_percentage": round(confidence * 100, 2),
         "clinical_advice": clinical_advice,
         "badge_color": badge_color,
         "probabilities": {
-            "No Spectacles Needed": round(prob_normal * 100, 2),
-            "Spectacles Required": round(prob_error * 100, 2)
+            "Spectacles Needed": round(prob_needed * 100, 2),
+            "No Spectacles Needed": round(prob_not_needed * 100, 2)
         },
-        "condition_breakdown": condition_prob_dict
+        "extracted_features": extracted_features,
+        "refined_image_preview": refined_thumbnail_b64
     }

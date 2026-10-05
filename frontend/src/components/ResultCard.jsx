@@ -1,19 +1,5 @@
 import React from 'react';
-import { CheckCircle2, AlertOctagon, Glasses, Sparkles, Clock, Shield, Eye } from 'lucide-react';
-
-const CONDITION_ICONS = {
-  "Normal Ocular Vision (Emmetropic)": "👁️",
-  "Myopia (Nearsightedness)": "🔍",
-  "Hyperopia (Farsightedness)": "🔭",
-  "Astigmatism (Corneal Asymmetry)": "🌀",
-};
-
-const CONDITION_COLORS = {
-  "Normal Ocular Vision (Emmetropic)": "#22c55e",
-  "Myopia (Nearsightedness)": "#f97316",
-  "Hyperopia (Farsightedness)": "#8b5cf6",
-  "Astigmatism (Corneal Asymmetry)": "#ec4899",
-};
+import { CheckCircle2, AlertOctagon, Glasses, Sparkles, Clock, Shield, Scan, Sliders, Cpu } from 'lucide-react';
 
 export default function ResultCard({ result, loading }) {
   if (loading) {
@@ -23,10 +9,10 @@ export default function ResultCard({ result, loading }) {
           <Sparkles size={24} />
         </div>
         <div style={{ fontWeight: 700, fontSize: '1rem', marginTop: 12 }}>
-          Screening Ocular Features...
+          Extracting Ocular Features & Screening...
         </div>
         <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
-          AI Vision Model is analyzing your eye image...
+          ResNet-18 model is analyzing spectacle requirement...
         </div>
         <style>{`
           @keyframes spin {
@@ -42,9 +28,9 @@ export default function ResultCard({ result, loading }) {
     return (
       <div className="empty-placeholder">
         <Glasses className="placeholder-icon" size={56} />
-        <div style={{ fontWeight: 600, color: '#475569' }}>No Analysis Performed Yet</div>
+        <div style={{ fontWeight: 600, color: '#475569' }}>No Screening Performed Yet</div>
         <div style={{ fontSize: '0.82rem', maxWidth: 320 }}>
-          Upload an eye photograph or use the webcam to screen for spectacle requirement.
+          Upload an eye photograph or use the webcam to check whether spectacles are needed.
         </div>
       </div>
     );
@@ -52,10 +38,8 @@ export default function ResultCard({ result, loading }) {
 
   const isSpectacleNeeded = result.spectacles_needed;
   const badgeClass = isSpectacleNeeded ? 'warning' : 'success';
-  const detectedCondition = result.detected_condition || (isSpectacleNeeded ? 'Refractive Error Detected' : 'Normal Ocular Vision (Emmetropic)');
-  const conditionIcon = CONDITION_ICONS[detectedCondition] || '👁️';
-  const conditionColor = CONDITION_COLORS[detectedCondition] || '#64748b';
-  const conditionBreakdown = result.condition_breakdown || null;
+  const features = result.extracted_features || null;
+  const refinedPreview = result.refined_image_preview || null;
 
   return (
     <div>
@@ -66,56 +50,69 @@ export default function ResultCard({ result, loading }) {
         </div>
         <div>
           <div className="banner-heading">
-            {isSpectacleNeeded ? 'Spectacles Required' : 'No Spectacles Needed'}
+            {isSpectacleNeeded ? 'Spectacles Needed' : 'No Spectacles Needed'}
           </div>
           <div className="banner-confidence">
-            AI Confidence: <strong>{result.confidence_percentage}%</strong>
+            Confidence: <strong>{result.confidence_percentage}%</strong>
           </div>
         </div>
       </div>
 
-      {/* Detected Condition Badge */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '10px 14px',
-        background: isSpectacleNeeded ? 'rgba(249,115,22,0.08)' : 'rgba(34,197,94,0.08)',
-        border: `1px solid ${conditionColor}30`,
-        borderRadius: 10,
-        marginBottom: 16,
-        marginTop: 4,
-      }}>
-        <span style={{ fontSize: '1.4rem' }}>{conditionIcon}</span>
-        <div>
-          <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            {isSpectacleNeeded ? 'Detected Condition' : 'Eye Status'}
-          </div>
-          <div style={{ fontWeight: 700, color: conditionColor, fontSize: '0.95rem' }}>
-            {detectedCondition}
+      {/* Refined Image ROI Preview */}
+      {refinedPreview && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '10px 14px',
+          background: '#f1f5f9',
+          borderRadius: 10,
+          border: '1px solid #cbd5e1',
+          marginBottom: 14,
+          marginTop: 6,
+        }}>
+          <img
+            src={refinedPreview}
+            alt="Refined Ocular ROI"
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 8,
+              objectFit: 'cover',
+              border: '2px solid #3b82f6',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
+            }}
+          />
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.74rem', color: '#1e40af', fontWeight: 700 }}>
+              <Scan size={14} /> Refined Ocular Region (ROI)
+            </div>
+            <div style={{ fontSize: '0.76rem', color: '#475569', marginTop: 2 }}>
+              Eye centered · CLAHE contrast equalized · Focal blur extracted
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Model Probabilities Breakdown */}
+      {/* Spectacle Probability Meters */}
       <div className="prob-meter-group">
         <div className="prob-label-row">
-          <span>Spectacles Required</span>
-          <span>{result.probabilities?.['Spectacles Required'] ?? (isSpectacleNeeded ? result.confidence_percentage : 100 - result.confidence_percentage)}%</span>
+          <span>Spectacles Needed</span>
+          <span>{result.probabilities?.['Spectacles Needed'] ?? (isSpectacleNeeded ? result.confidence_percentage : 100 - result.confidence_percentage)}%</span>
         </div>
         <div className="prob-bar-track">
           <div
             className="prob-bar-fill warning"
             style={{
-              width: `${result.probabilities?.['Spectacles Required'] ?? (isSpectacleNeeded ? result.confidence_percentage : 100 - result.confidence_percentage)}%`,
+              width: `${result.probabilities?.['Spectacles Needed'] ?? (isSpectacleNeeded ? result.confidence_percentage : 100 - result.confidence_percentage)}%`,
             }}
           ></div>
         </div>
       </div>
 
-      <div className="prob-meter-group" style={{ marginBottom: conditionBreakdown ? 16 : 24 }}>
+      <div className="prob-meter-group" style={{ marginBottom: 18 }}>
         <div className="prob-label-row">
-          <span>No Spectacles Needed (Normal)</span>
+          <span>No Spectacles Needed</span>
           <span>{result.probabilities?.['No Spectacles Needed'] ?? (!isSpectacleNeeded ? result.confidence_percentage : 100 - result.confidence_percentage)}%</span>
         </div>
         <div className="prob-bar-track">
@@ -128,8 +125,8 @@ export default function ResultCard({ result, loading }) {
         </div>
       </div>
 
-      {/* Condition Breakdown */}
-      {conditionBreakdown && (
+      {/* Extracted Optical Features Box */}
+      {features && (
         <div style={{
           background: '#f8fafc',
           border: '1px solid #e2e8f0',
@@ -137,44 +134,40 @@ export default function ResultCard({ result, loading }) {
           padding: '12px 14px',
           marginBottom: 16,
         }}>
-          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Eye size={13} /> Condition Probability Breakdown
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#475569', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Sliders size={13} /> Extracted Optical Image Features
           </div>
-          {Object.entries(conditionBreakdown).map(([cond, prob]) => {
-            const isDetected = detectedCondition.toLowerCase().includes(cond.toLowerCase().split(' ')[0]);
-            return (
-              <div key={cond} style={{ marginBottom: 7 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: 3 }}>
-                  <span style={{ color: isDetected ? '#1e293b' : '#64748b', fontWeight: isDetected ? 700 : 400 }}>
-                    {cond === 'Normal Vision' ? '✓ ' : isDetected ? '⚠ ' : ''}{cond}
-                  </span>
-                  <span style={{ fontWeight: 600, color: isDetected ? conditionColor : '#94a3b8' }}>{prob}%</span>
-                </div>
-                <div style={{ height: 5, borderRadius: 4, background: '#e2e8f0', overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%',
-                    borderRadius: 4,
-                    width: `${prob}%`,
-                    background: isDetected ? conditionColor : '#cbd5e1',
-                    transition: 'width 0.6s ease',
-                  }}></div>
-                </div>
-              </div>
-            );
-          })}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: '0.76rem' }}>
+            <div style={{ background: '#ffffff', padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+              <div style={{ color: '#94a3b8', fontSize: '0.70rem' }}>Focal Sharpness</div>
+              <div style={{ fontWeight: 700, color: '#0f172a' }}>{features.focal_sharpness_score}</div>
+            </div>
+            <div style={{ background: '#ffffff', padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+              <div style={{ color: '#94a3b8', fontSize: '0.70rem' }}>Meridional Asymmetry</div>
+              <div style={{ fontWeight: 700, color: '#0f172a' }}>{features.meridional_asymmetry_index}</div>
+            </div>
+            <div style={{ background: '#ffffff', padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+              <div style={{ color: '#94a3b8', fontSize: '0.70rem' }}>Pupil Contrast Ratio</div>
+              <div style={{ fontWeight: 700, color: '#0f172a' }}>{features.pupil_iris_contrast_ratio}</div>
+            </div>
+            <div style={{ background: '#ffffff', padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+              <div style={{ color: '#94a3b8', fontSize: '0.70rem' }}>Reflex Symmetry</div>
+              <div style={{ fontWeight: 700, color: '#0f172a' }}>{features.reflex_symmetry_score}%</div>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Clinical Guidance Advice Card */}
       <div className="advice-card">
-        <div className="advice-title">Screening Summary & Advice</div>
+        <div className="advice-title">Screening Assessment & Guidance</div>
         <div className="advice-text">{result.clinical_advice}</div>
       </div>
 
       {/* Meta info footer */}
       <div className="meta-footer">
         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <Shield size={14} /> SpectacleVisionNet CNN · 96.7% Accuracy
+          <Cpu size={14} /> ResNet-18 Transfer Learning · Binary Screening
         </span>
         {result.execution_time_ms && (
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
